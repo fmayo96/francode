@@ -1,95 +1,168 @@
+from dotenv import load_dotenv
 from openai import OpenAI
 import json
-from dotenv import load_dotenv
+import os
 
 load_dotenv()
 
 client = OpenAI()
 
-SYSTEM_PROMPT = '''
-    Sos un asistente que responde preguntas de manera eficiente y concisa. No das vueltas.
-'''
+MODEL = "gpt-5.6-luna"
+INSTRUCTIONS = """
+    Sos un asistente dentro de un harness para coding.
+    Usa tools cuando sea apropiado.
+    No inventes resultados de las tools.
+"""
 
-messages = []
 
-def add_system_message(messages,content):
-    messages.append({
-        "role": "system",
-        "content": content
-    })
+def get_weather(city: str):
+    return {"city": city, "weather": f"El clima en {city} es una mierda"}
 
-def add_assistant_message(messages,content):
-    messages.append(content)
 
-def add_user_message(messages,content):
-    messages.append({
-        "role": "user",
-        "content": content
-    })
+def list_files(path: str):
+    return os.listdir(path)
 
-def chat():
-    add_system_message(messages, SYSTEM_PROMPT)
-    message = input("> ")
-    add_user_message(messages, message)
-    response = client.responses.create(
-        model="gpt-4o",
-        input=messages,
-        tools=tools
-    )    
-    for item in response.output:
-        if item.type != "function_call":
-            print("Not a tool call")
-            continue
-        if item.name == "get_weather":
-            print("Got here")
-            args = json.loads(item.arguments)
-            result = get_weather(**args)
-            messages.append(
-            {
-            "type": "function_call_output",
-            "call_id": item.call_id,
-            "output": result,
-            }
-        )
-        print("after tool call")
-        response = client.responses.create(
-            model="gpt-4o",
-            input=messages,
-            tools=tools
-    )
-    print("after last message")
-    messages.append(response.output)
-    print(response.output_text)
-    
-def get_weather(city: str, unit: str | None = "celsius"):
-    print("tool running")
-    return f"El clima en {city} es una mierda"
 
-tools = [
+def read_file(path: str):
+    content = ""
+    with open(path, "r") as f:
+        for line in f:
+            content += line + "\n"
+    return content
+
+
+def write_file(path: str, content: str):
+    with open(path, "w") as f:
+        f.write(content)
+
+
+TOOL_REGISTERY = {
+    "get_weather": get_weather,
+    "list_files": list_files,
+    "read_file": read_file,
+    "write_file": write_file,
+}
+
+TOOLS = [
     {
         "type": "function",
         "name": "get_weather",
-        "description": "Get current weather for a city",
+        "description": "Obtiene el clima actual de una ciudad",
         "parameters": {
             "type": "object",
             "properties": {
                 "city": {
                     "type": "string",
-                    "description": "City name, e.g. 'Paris'"
-                },
-                "unit": {
-                    "type": "string",
-                    "enum": ["celsius", "fahrenheit"],
-                    "description": "Temperature unit"
+                    "description": "Ciudad de la que se quiere saber el clima",
                 }
             },
-            "required": ["city", "unit"],
-            "additionalProperties": False
+            "required": ["city"],
+            "additionalProperties": False,
         },
-        "strict": True
-    }
-    
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "list_files",
+        "description": "Lists all the files and directories in the selected directory",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "path to the directory to be listed",
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "read_file",
+        "description": "reads the contents of a file given the filepath",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "path to the file to be read",
+                }
+            },
+            "required": ["path"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
+    {
+        "type": "function",
+        "name": "write_file",
+        "description": "writes some content provided as argument into a file with path provided also as an argument",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "path to the file to be written",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "content to be written in the file",
+                },
+            },
+            "required": ["path", "content"],
+            "additionalProperties": False,
+        },
+        "strict": True,
+    },
 ]
 
+
+def run_agent(input_items, max_steps: int = 10) -> str:
+
+    for step in range(max_steps):
+        response = client.responses.create(
+            model=MODEL, instructions=INSTRUCTIONS, tools=TOOLS, input=input_items
+        )
+        input_items += response.output
+
+        tool_calls = [item for item in response.output if item.type == "function_call"]
+
+        if not tool_calls:
+            return response.output_text
+
+        for call in tool_calls:
+            try:
+                args = json.loads(call.arguments)
+
+                if call.name not in TOOL_REGISTERY:
+                    raise ValueError(f"Herramienta desconocida {call.name}")
+
+                print(f"Ejecutando herramienta {call.name}")
+                result = TOOL_REGISTERY[call.name](**args)
+
+                tool_output = {"ok": True, "result": result}
+                print(f"Herramienta ejecutada correctamente")
+            except Exception as error:
+                tool_output = {"ok": False, "error": str(error)}
+
+            input_items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": call.call_id,
+                    "output": json.dumps(tool_output, ensure_ascii=False),
+                }
+            )
+    raise RuntimeError(f"El agente superó el máximo de {max_steps} pasos")
+
+
+input_items = []
+
 while True:
-    chat()
+    user_input = input("> ")
+    if user_input in ["exit", "quit", "cerrar"]:
+        exit()
+    input_items.append({"role": "user", "content": user_input})
+    answer = run_agent(input_items)
+    print(answer)
