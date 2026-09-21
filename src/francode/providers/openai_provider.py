@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 from openai import OpenAI
-from openai.types.responses.tool_param import ToolParam
+from openai.types.responses import FunctionToolParam
+from typing import Iterable
 from enum import StrEnum
 from francode.tools import TOOL_REGISTERY, TOOLS_OPENAI
 from francode.tools import *
@@ -24,7 +25,7 @@ INSTRUCTIONS = """
     No inventes resultados de las tools.
     """
 
-MODELS = [model.id for model in OpenAI().models.list()]
+OPENAI_MODELS = [model.id for model in OpenAI().models.list()]
 
 
 class OpenAIProvider:
@@ -33,13 +34,13 @@ class OpenAIProvider:
         model: str = "gpt-5.6-luna",
         effort: ReasoningEffort = ReasoningEffort.MEDIUM,
         instructions: str = INSTRUCTIONS,
-        tools: list[ToolParam] = TOOLS_OPENAI,
+        tools: Iterable[FunctionToolParam] = TOOLS_OPENAI,
         tools_registry: dict = TOOL_REGISTERY,
     ):
         self.client = OpenAI()
         print(model)
 
-        if model not in MODELS:
+        if model not in OPENAI_MODELS:
             raise ValueError("Model name does not match available models")
 
         self.model = model
@@ -48,14 +49,18 @@ class OpenAIProvider:
         self.tools = tools
         self.tools_registry = tools_registry
 
-    def run_agent(self, input_items, max_steps: int = 500) -> str:
-        for step in range(max_steps):
-            response = self.client.responses.create(
+    def get_response(self, input_items: str):
+        response = self.client.responses.create(
                 model=self.model,
                 instructions=self.instructions,
                 tools=self.tools,
                 input=input_items,
             )
+        return response
+    
+    def run_agent(self, input_items, max_steps: int = 500):
+        for _ in range(max_steps):
+            response = self.get_response(input_items)
             input_items += response.output
 
             tool_calls = [
@@ -63,7 +68,7 @@ class OpenAIProvider:
             ]
 
             if not tool_calls:
-                return response.output_text
+                return response
 
             for call in tool_calls:
                 try:

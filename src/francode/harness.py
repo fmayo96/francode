@@ -1,5 +1,5 @@
 from enum import StrEnum
-from .providers import OpenAIProvider, ReasoningEffort, MODELS
+from .providers import OpenAIProvider
 
 
 class Provider(StrEnum):
@@ -20,4 +20,5 @@ class Harness:
                 exit()
             input_items.append({"role": "user", "content": user_input})
             answer = self.provider.run_agent(input_items)
-            print(answer)
+            input_items.append(answer)
+            print(answer.output_text)

@@ -1,4 +1,6 @@
 from .code_tools import *
+from openai.types.responses import FunctionToolParam
+from typing import Iterable
 
 TOOL_REGISTERY = {
     "bash": bash,
@@ -9,7 +11,7 @@ TOOL_REGISTERY = {
     "create_react_app": create_react_app,
 }
 
-TOOLS_OPENAI = [
+TOOLS_OPENAI: Iterable[FunctionToolParam]= [
     {
         "type": "function",
         "name": "bash",

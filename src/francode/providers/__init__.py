@@ -1,1 +1,1 @@
-from .openai_provider import OpenAIProvider, ReasoningEffort, MODELS
+from .openai_provider import OpenAIProvider, ReasoningEffort, OPENAI_MODELS
